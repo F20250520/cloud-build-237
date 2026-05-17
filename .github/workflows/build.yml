@@ -1,1 +1,122 @@
+name: Build ImmortalWrt
 
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '*.config'
+      - 'diy-part*.sh'
+
+env:
+  REPO_URL: https://github.com/padavanonly/immortalwrt-mt798x-6.6
+  REPO_BRANCH: main
+  DIY_P1_SH: diy-part1.sh
+  DIY_P2_SH: diy-part2.sh
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    strategy:
+      fail-fast: false        # 一个失败不影响另一个继续编译
+      matrix:
+        include:
+          - device: 360T7
+            config: 360t7.config
+          - device: NX30Pro
+            config: nx30pro.config
+
+    name: Build ${{ matrix.device }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"
+          sudo docker image prune -a -f
+          df -h
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+            bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext \
+            gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 \
+            libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev \
+            libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev \
+            libssl-dev libtool lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full \
+            patch pkgconf python3 python3-pyelftools python3-setuptools qemu-utils \
+            rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip \
+            vim wget xmlto xxd zlib1g-dev
+          sudo timedatectl set-timezone "$TZ"
+
+      - name: Clone source code
+        run: |
+          git clone --depth=1 $REPO_URL -b $REPO_BRANCH openwrt
+
+      - name: Run DIY Part 1
+        run: |
+          chmod +x $DIY_P1_SH
+          cd openwrt
+          bash $GITHUB_WORKSPACE/$DIY_P1_SH
+
+      - name: Update & install feeds
+        run: |
+          cd openwrt
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Load config & run DIY Part 2
+        run: |
+          cp ${{ matrix.config }} openwrt/.config
+          chmod +x $DIY_P2_SH
+          cd openwrt
+          bash $GITHUB_WORKSPACE/$DIY_P2_SH
+          make defconfig
+
+      - name: Download packages
+        run: |
+          cd openwrt
+          make download -j8 V=s 2>&1 | tee download.log
+          find dl -size -1024c -delete
+
+      - name: Compile firmware
+        id: compile
+        run: |
+          cd openwrt
+          make -j$(nproc) || make -j1 V=s
+          echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: Organize firmware
+        id: organize
+        if: steps.compile.outputs.status == 'success'
+        run: |
+          cd openwrt/bin/targets/*/*
+          rm -rf packages
+          echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+          echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: Upload to Artifact
+        uses: actions/upload-artifact@v4
+        if: steps.organize.outputs.status == 'success'
+        with:
+          name: ImmortalWrt-${{ matrix.device }}-${{ github.run_number }}
+          path: ${{ env.FIRMWARE }}
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        if: steps.organize.outputs.status == 'success'
+        with:
+          tag_name: ${{ github.run_number }}
+          name: ImmortalWrt-${{ github.run_number }}
+          files: ${{ env.FIRMWARE }}/*
+          body: |
+            ### ${{ matrix.device }} 固件
+            - 源码：padavanonly/immortalwrt-mt798x-6.6
+            - 编译时间：${{ github.run_started_at }}
