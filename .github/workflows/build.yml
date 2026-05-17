@@ -20,6 +20,8 @@ env:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    container:
+      image: debian:11
 
     strategy:
       fail-fast: false
@@ -38,15 +40,12 @@ jobs:
 
       - name: Free disk space
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
-                      /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"
-          sudo docker image prune -a -f
           df -h
 
       - name: Install dependencies
         run: |
-          sudo apt-get update -y
-          sudo apt-get install -y \
+          apt-get update -y
+          apt-get install -y \
             ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
             bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext \
             gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 \
@@ -55,8 +54,8 @@ jobs:
             libssl-dev libtool lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full \
             patch pkgconf python3 python3-pyelftools python3-setuptools qemu-utils \
             rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip \
-            vim wget xmlto xxd zlib1g-dev
-          sudo timedatectl set-timezone "$TZ"
+            vim wget xmlto xxd zlib1g-dev tzdata
+          ln -sf /usr/share/zoneinfo/$TZ /etc/localtime
 
       - name: Restore ccache
         uses: actions/cache@v4
@@ -80,7 +79,8 @@ jobs:
 
       - name: Clone source code
         run: |
-          git clone --depth=1 $REPO_URL -b $REPO_BRANCH openwrt
+          git clone -b $REPO_BRANCH --single-branch --filter=blob:none \
+            $REPO_URL openwrt
 
       - name: Run DIY Part 1
         run: |
@@ -134,7 +134,7 @@ jobs:
         with:
           name: ImmortalWrt-${{ matrix.device }}-${{ github.run_number }}
           path: ${{ env.FIRMWARE }}
-          retention-days: 90    # Artifact 保留 90 天（约3个月）
+          retention-days: 90
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -145,10 +145,9 @@ jobs:
           files: ${{ env.FIRMWARE }}/*
           body: |
             ### ${{ matrix.device }} 固件
-            - 源码：padavanonly/immortalwrt-mt798x-6.6
+            - 源码：padavanonly/immortalwrt-mt798x-24.10
             - 编译时间：${{ github.run_started_at }}
 
-  # 清理旧 Release，只保留最近 3 次
   cleanup:
     runs-on: ubuntu-22.04
     needs: build
