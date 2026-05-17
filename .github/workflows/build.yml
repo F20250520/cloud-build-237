@@ -11,7 +11,7 @@ on:
       - 'diy-part*.sh'
 
 env:
-  REPO_URL: https://github.com/padavanonly/immortalwrt-mt798x-6.6
+  REPO_URL: https://github.com/padavanonly/immortalwrt-mt798x-24.10
   REPO_BRANCH: openwrt-24.10-6.6
   DIY_P1_SH: diy-part1.sh
   DIY_P2_SH: diy-part2.sh
